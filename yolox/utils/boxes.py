@@ -3,7 +3,9 @@
 # Copyright (c) Megvii Inc. All rights reserved.
 
 import numpy as np
+from sympy import det
 
+from mmcv.ops import soft_nms, nms
 import torch
 import torchvision
 
@@ -60,12 +62,24 @@ def postprocess(prediction, num_classes, conf_thre=0.7, nms_thre=0.45, class_agn
                 nms_thre,
             )
         else:
+            '''
             nms_out_index = torchvision.ops.batched_nms(
                 detections[:, :4],
                 detections[:, 4] * detections[:, 5],
                 detections[:, 6],
                 nms_thre,
             )
+            '''
+            min_wh, max_wh = 2, 4096  # (pixels) minimum and maximum box width and height
+            classes = detections[:, 6:7] * max_wh  # classes
+            boxes, scores = detections[:, :4] + classes, detections[:, 4] * detections[:, 5]
+            nms_thre = 0.6
+            dets, nms_out_index = soft_nms(boxes.contiguous(), scores.contiguous(), iou_threshold=nms_thre,
+                                           sigma=0.5, min_score=0.001, method='linear', offset=0)
+            #dets, nms_out_index = nms(boxes.contiguous(), scores.contiguous(), iou_threshold=nms_thre, offset=0)
+            detections[nms_out_index, 5] = dets[:, 4]
+            detections[nms_out_index, :4] = dets[:, :4] - classes[nms_out_index]
+            detections[nms_out_index, 4] = 1.0
 
         detections = detections[nms_out_index]
         if output[i] is None:
